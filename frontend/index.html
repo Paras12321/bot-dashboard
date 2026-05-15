@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Web-Based Dashboard for Controlling and Automating Telegram & Discord Bots">
+    <title>BotCommand — Bot Control Dashboard</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <!-- Animated Background -->
+    <div class="bg-animation">
+        <div class="bg-orb"></div>
+        <div class="bg-orb"></div>
+        <div class="bg-orb"></div>
+    </div>
+    <div class="grid-overlay"></div>
+
+    <!-- Navbar -->
+    <nav class="navbar">
+        <a href="/" class="nav-brand">
+            <div class="logo-icon">🤖</div>
+            <h1>BotCommand</h1>
+        </a>
+        <div class="nav-links">
+            <a href="/" class="nav-link active">Home</a>
+            <a href="/dashboard" class="nav-link">Dashboard</a>
+            <a href="/dashboard" class="btn btn-primary btn-sm">Launch App →</a>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-badge">
+            <span class="pulse"></span>
+            Platform Online — v1.0
+        </div>
+        <h1>Control Your Bots<br><span class="gradient-text">From One Place</span></h1>
+        <p>A powerful web dashboard to manage, automate, and monitor your Telegram &amp; Discord bots. Send messages, set auto-replies, and track everything in real time.</p>
+        <div class="hero-buttons">
+            <a href="/dashboard" class="btn btn-primary">Open Dashboard 🚀</a>
+            <a href="#features" class="btn btn-secondary">Explore Features ↓</a>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="features-section" id="features">
+        <div class="section-header">
+            <h2>Everything You Need</h2>
+            <p>A complete toolkit for bot management across multiple platforms</p>
+        </div>
+        <div class="features-grid">
+            <div class="feature-card animate-in">
+                <div class="feature-icon blue">📡</div>
+                <h3>Multi-Platform Support</h3>
+                <p>Manage both Discord and Telegram bots from a single unified dashboard interface.</p>
+            </div>
+            <div class="feature-card animate-in delay-1">
+                <div class="feature-icon purple">💬</div>
+                <h3>Send Messages</h3>
+                <p>Queue and send messages to any channel or chat directly from the web dashboard.</p>
+            </div>
+            <div class="feature-card animate-in delay-2">
+                <div class="feature-icon cyan">⚡</div>
+                <h3>Auto-Reply System</h3>
+                <p>Configure keyword-triggered automatic responses for your bots with flexible matching.</p>
+            </div>
+            <div class="feature-card animate-in delay-3">
+                <div class="feature-icon green">📊</div>
+                <h3>Real-Time Logs</h3>
+                <p>Monitor all bot activities, task executions, and errors with detailed logging.</p>
+            </div>
+            <div class="feature-card animate-in delay-4">
+                <div class="feature-icon orange">👋</div>
+                <h3>Welcome Messages</h3>
+                <p>Automatically greet new members joining your servers or groups with custom messages.</p>
+            </div>
+            <div class="feature-card animate-in delay-4">
+                <div class="feature-icon pink">🔒</div>
+                <h3>Secure by Design</h3>
+                <p>Bot tokens are stored server-side only. API validation on every request keeps data safe.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Architecture Section -->
+    <section class="features-section">
+        <div class="section-header">
+            <h2>How It Works</h2>
+            <p>A clean decoupled architecture for reliability and speed</p>
+        </div>
+        <div class="features-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
+            <div class="feature-card animate-in" style="text-align:center;">
+                <div style="font-size:2.5rem;margin-bottom:0.8rem;">🖥️</div>
+                <h3>Dashboard</h3>
+                <p>You interact here. Fill forms, click send, view results.</p>
+            </div>
+            <div class="feature-card animate-in delay-1" style="text-align:center;">
+                <div style="font-size:2.5rem;margin-bottom:0.8rem;">⚙️</div>
+                <h3>FastAPI Backend</h3>
+                <p>Validates requests, queues tasks, serves data via REST API.</p>
+            </div>
+            <div class="feature-card animate-in delay-2" style="text-align:center;">
+                <div style="font-size:2.5rem;margin-bottom:0.8rem;">🗄️</div>
+                <h3>SQLite Database</h3>
+                <p>Stores bots, tasks, logs. Bridges the API and bot service.</p>
+            </div>
+            <div class="feature-card animate-in delay-3" style="text-align:center;">
+                <div style="font-size:2.5rem;margin-bottom:0.8rem;">🤖</div>
+                <h3>Bot Worker</h3>
+                <p>Runs continuously, picks tasks, and sends messages via platform APIs.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <p>Built with ❤️ using FastAPI, discord.py & python-telegram-bot</p>
+        <p style="margin-top:6px;opacity:0.6;">BotCommand Dashboard &copy; 2026</p>
+    </footer>
+</body>
+</html>
