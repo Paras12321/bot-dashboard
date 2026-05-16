@@ -22,7 +22,7 @@
 
 - **📅 Task Scheduling** — Schedule routine announcements and automated messages with ease.
 
-![Complex Task Scheduling Workflow](frontend/img/ss3.png)
+![Complex Task Scheduling Workflow](frontend/img/ss6.png)
 
 - **👥 Multi-User Support** — Allow multiple admins to access the dashboard and manage bot operations.
 - **📊 Activity Logs** — Track bot performance, user interactions, and system errors in real-time.
