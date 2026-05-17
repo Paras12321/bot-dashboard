@@ -1,148 +1,208 @@
 """
-Bot Service Worker — runs continuously, polling the database for pending tasks
-and dispatching them to the appropriate bot handler (Discord or Telegram).
+worker.py - Bot Service Worker
+===============================
+Polls the database for pending tasks and dispatches them to the correct
+bot platform (Discord / Telegram) with bounded concurrency.
 
 Usage:
     python worker.py
 """
 
 import asyncio
-import sys
+import logging
 import os
-import time
+import signal
+import sys
+from datetime import datetime, timezone
 
-# Add project root to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from dotenv import load_dotenv
 
-from bot_service.db_access import (
-    get_pending_tasks,
-    mark_task_done,
-    create_log,
-    get_active_bots
+import db_access
+from discord_bot import discord_handler
+from telegram_bot import telegram_handler
+
+load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
-from bot_service.discord_bot import discord_handler
-from bot_service.telegram_bot import telegram_handler
-
-# Polling interval in seconds
-POLL_INTERVAL = 5
+log = logging.getLogger("worker")
 
 
-async def process_task(task):
+POLL_INTERVAL: int = int(os.getenv("POLL_INTERVAL", 5))
+WORKER_CONCURRENCY: int = int(os.getenv("WORKER_CONCURRENCY", 5))
+
+
+
+
+async def process_task(task, semaphore: asyncio.Semaphore) -> None:
     """
-    Process a single task by routing it to the correct bot handler.
-
-    Args:
-        task: SQLite Row object with task + bot details
+    Execute a single task end-to-end under the concurrency semaphore:
+      1. Route to the correct platform handler.
+      2. Mark as done or failed in the database.
+      3. Write an audit log entry.
     """
-    task_id = task["id"]
-    platform = task["platform"]
-    token = task["token"]
-    target_id = task["target_id"]
-    message = task["message"]
-    action = task["action"]
-    bot_name = task["bot_name"]
+    async with semaphore:
+        task_id = task["id"]
+        bot_id = task["bot_id"]
+        platform = task["platform"]
+        token = task["token"]
+        target_id = task["target_id"]
+        message = task["message"]
+        action = task["action"]
+        bot_name = task["bot_name"]
 
-    print(f"\n📋 Processing Task #{task_id}: [{platform}] {action}")
-    print(f"   Bot: {bot_name} | Target: {target_id}")
+        log.info("Processing task #%s | platform=%s action=%s bot=%s",
+                 task_id, platform, action, bot_name)
 
-    try:
-        if action == "send_message":
+        try:
+            if action != "send_message":
+                raise ValueError(f"Unsupported action: {action}")
+
             if platform == "discord":
-                result = await discord_handler.send_message(token, target_id, message)
+                result = await discord_handler.send_message(token, int(target_id), message)
             elif platform == "telegram":
                 result = await telegram_handler.send_message(token, target_id, message)
             else:
-                result = {"status": "failed", "detail": f"Unknown platform: {platform}"}
+                raise ValueError(f"Unknown platform: {platform}")
 
-            # Update task status based on result
             if result["status"] == "success":
-                mark_task_done(task_id, status="done")
-                create_log(
+                db_access.mark_task_done(task_id, status="done")
+                db_access.create_log(
                     task_id=task_id,
-                    bot_id=task["bot_id"],
-                    level="success",
-                    message=f"Message sent successfully via {platform}",
-                    details=result.get("detail", "")
+                    bot_id=bot_id,
+                    level="info",
+                    message=f"Task #{task_id} succeeded via {platform}",
+                    details=result.get("detail", ""),
                 )
-                print(f"   ✅ Task #{task_id} completed successfully")
+                log.info("Task #%s completed successfully.", task_id)
             else:
-                mark_task_done(task_id, status="failed", error_message=result["detail"])
-                create_log(
+                db_access.mark_task_done(task_id, status="failed",
+                                         error_message=result["detail"])
+                db_access.create_log(
                     task_id=task_id,
-                    bot_id=task["bot_id"],
+                    bot_id=bot_id,
                     level="error",
-                    message=f"Failed to send message via {platform}",
-                    details=result.get("detail", "")
+                    message=f"Task #{task_id} failed via {platform}",
+                    details=result.get("detail", ""),
                 )
-                print(f"   ❌ Task #{task_id} failed: {result['detail']}")
-        else:
-            mark_task_done(task_id, status="failed", error_message=f"Unsupported action: {action}")
-            print(f"   ⚠️ Unsupported action: {action}")
+                log.warning("Task #%s failed: %s", task_id, result["detail"])
 
-    except Exception as e:
-        mark_task_done(task_id, status="failed", error_message=str(e))
-        create_log(
-            task_id=task_id,
-            bot_id=task["bot_id"],
-            level="error",
-            message=f"Exception during task execution",
-            details=str(e)
-        )
-        print(f"   💥 Task #{task_id} error: {e}")
+        except Exception as exc:
+            log.exception("Unexpected error executing task #%s", task_id)
+            db_access.mark_task_done(task_id, status="failed", error_message=str(exc))
+            db_access.create_log(
+                task_id=task_id,
+                bot_id=bot_id,
+                level="error",
+                message=f"Exception during task #{task_id}",
+                details=str(exc),
+            )
 
 
-async def worker_loop():
+async def worker_loop(stop_event: asyncio.Event) -> None:
     """
-    Main worker loop — continuously polls for and processes pending tasks.
+    Main loop — polls the DB for pending tasks and dispatches them
+    concurrently (up to WORKER_CONCURRENCY at once).
     """
-    print("=" * 60)
-    print("🤖 Bot Service Worker Started")
-    print(f"⏱️  Polling interval: {POLL_INTERVAL}s")
-    print("=" * 60)
+    semaphore = asyncio.Semaphore(WORKER_CONCURRENCY)
 
-    # Log startup
-    create_log(level="info", message="Bot service worker started")
+    log.info("Worker started | poll_interval=%ss concurrency=%s",
+             POLL_INTERVAL, WORKER_CONCURRENCY)
 
-    # Show active bots
-    bots = get_active_bots()
+    db_access.create_log(level="info", message="Bot service worker started")
+
+    
+    bots = db_access.get_active_bots()
     if bots:
-        print(f"\n📡 Active bots ({len(bots)}):")
-        for bot in bots:
-            print(f"   • {bot['name']} ({bot['platform']})")
+        log.info("Active bots (%d): %s", len(bots),
+                 ", ".join(f"{b['name']} ({b['platform']})" for b in bots))
     else:
-        print("\n⚠️  No active bots found. Add bots via the dashboard.")
+        log.warning("No active bots found. Add bots via the dashboard.")
 
-    print("\n🔄 Waiting for tasks...\n")
+    in_flight: set[asyncio.Task] = set()
 
-    while True:
+    while not stop_event.is_set():
         try:
-            tasks = get_pending_tasks()
+            tasks = db_access.get_pending_tasks()
 
             if tasks:
-                print(f"\n📬 Found {len(tasks)} pending task(s)")
+                log.info("Found %d pending task(s).", len(tasks))
                 for task in tasks:
-                    await process_task(task)
+                    t = asyncio.create_task(
+                        process_task(task, semaphore),
+                        name=f"task_{task['id']}",
+                    )
+                    in_flight.add(t)
+                    t.add_done_callback(in_flight.discard)
 
-            await asyncio.sleep(POLL_INTERVAL)
+        except Exception as exc:
+            log.exception("Worker poll error: %s", exc)
+            db_access.create_log(level="error", message="Worker poll error",
+                                 details=str(exc))
 
-        except KeyboardInterrupt:
-            print("\n\n🛑 Worker stopped by user")
-            create_log(level="info", message="Bot service worker stopped")
-            break
+        
+        for _ in range(POLL_INTERVAL * 10):
+            if stop_event.is_set():
+                break
+            await asyncio.sleep(0.1)
 
-        except Exception as e:
-            print(f"\n💥 Worker error: {e}")
-            create_log(level="error", message="Worker loop error", details=str(e))
-            await asyncio.sleep(POLL_INTERVAL)
+    
+    if in_flight:
+        log.info("Draining %d in-flight task(s)...", len(in_flight))
+        await asyncio.gather(*in_flight, return_exceptions=True)
+
+    log.info("Worker loop exited cleanly.")
 
 
-def main():
-    """Entry point for the worker."""
+
+
+async def shutdown(stop_event: asyncio.Event) -> None:
+    """Signal the worker to stop and close all bot sessions."""
+    log.info("Shutdown signal received.")
+    stop_event.set()
+
+    log.info("Closing Discord sessions...")
+    await discord_handler.close_all()
+
+    log.info("Closing Telegram sessions...")
+    await telegram_handler.close_all()
+
+    db_access.create_log(level="info", message="Bot service worker stopped")
+    log.info("Shutdown complete.")
+
+
+
+
+async def main() -> None:
+    stop_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    log.info(
+        "Bot Service Worker starting at %s UTC",
+        datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    )
+
+    
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(
+            sig,
+            lambda: asyncio.create_task(shutdown(stop_event)),
+        )
+
     try:
-        asyncio.run(worker_loop())
-    except KeyboardInterrupt:
-        print("\n🛑 Shutdown complete.")
+        await worker_loop(stop_event)
+    except asyncio.CancelledError:
+        pass
+    finally:
+        if not stop_event.is_set():
+            await shutdown(stop_event)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        sys.exit(0)
